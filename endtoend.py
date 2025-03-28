@@ -116,19 +116,16 @@ def main_loop(inference_dir, raw_dir, model, ocr):
         p = (bus_voltage - 6)/2.4*100
         if(p > 100):p = 100
         if(p < 0):p = 0
-        if current < -0.3:
+        if current < -0.5:
             status = "Discharging"
             discharge_counter += 1
-        else:
-            discharge_counter = 0
-            
-        # INA219 measure bus voltage on the load side. So PSU voltage = bus_voltage + shunt_voltage
-        if current < -0.3:
             print("Load Voltage:  {:6.3f} V".format(bus_voltage))
             print("Current:       {:9.6f} A".format(current))
             print("Power:         {:6.3f} W".format(power))
             print("Percent:       {:3.1f}%".format(p))
             print("")
+        else:
+            discharge_counter = 0
 
         # Capture current frame
         frame = picam2.capture_array()
@@ -182,7 +179,7 @@ ocr_model = PaddleOCR(
     cls_model_dir=None,
     rec_model_dir='ocr',
     rec_algorithm='SVTR_LCNet',
-    rec_char_dict_path='/home/platepatrol/Desktop/ocr/character_dict.txt',
+    rec_char_dict_path='/home/platepatrol/Desktop/PlatePatrol/ocr/character_dict.txt',
     use_angle_cls=True,
     lang='en'
 )
@@ -219,4 +216,4 @@ while True:
 # UPS setup
 ina219 = INA219(addr=0x42)
 
-main_loop('/home/platepatrol/Desktop/local_inference_frames', '/home/platepatrol/Desktop/local_raw_footage', det_model, ocr_model)
+main_loop('/home/platepatrol/Desktop/inference_frames', '/home/platepatrol/Desktop/raw_footage', det_model, ocr_model)
