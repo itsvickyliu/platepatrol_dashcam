@@ -216,12 +216,21 @@ card.Transaction(req)
 # GPS setup
 gpsd.connect()
 while True:
-    packet = gpsd.get_current()
-    if packet.mode >= 2:  # Check for 2D or 3D fix
-        print("GPS connected")
-        break
-    else:
-        time.sleep(1)
+    try:
+        # Attempt to get the current GPS data
+        packet = gpsd.get_current()
+        
+        # Check for 2D or 3D fix (mode 2 or 3)
+        if packet.mode >= 2:
+            print("GPS connected")
+            break
+    except UserWarning as e:
+        # Catch the UserWarning and print a message
+        if str(e) == 'GPS not active':
+            print("GPS not active, waiting for connection...")
+            time.sleep(1)  # Wait for a moment and try again
+        else:
+            raise  # Re-raise other warnings if necessary
 
 # UPS setup
 ina219 = INA219(addr=0x42)
