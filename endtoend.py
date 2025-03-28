@@ -21,12 +21,20 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
     results = det(infer_frame)
     latency = time.time() - start
     print(f"Detection latency: {latency:.3f} seconds")
+    print(f"{len(results[0].boxes)} license plates detected")
     for i, result in enumerate(results[0].boxes):
-        print(f"{len(results[0].boxes)} license plates detected")
+
+        if result.conf < 0.5:
+            continue
+        
         # Extract bounding box coordinates
         x1, y1, x2, y2 = map(int, result.xyxy[0])
         # Crop the detected region (license plate)
         cropped_img = infer_frame[y1:y2, x1:x2]
+
+        # Skip OCR if height >= width
+        if cropped_img.shape[0] >= cropped_img.shape[1]:
+            continue
 
         # Run PaddleOCR on the cropped image
         start = time.time()
@@ -35,33 +43,35 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
         print(f"OCR latency: {latency:.3f} seconds")
         if ocr_result:
             recognized_text = ''.join([line[0][0] for line in ocr_result])
-            # Ask server if this license plate is a hit
-            req = {"req": "web.get"}
-            req["route"] = "GetDetection"
-            req["name"] = f'/{recognized_text}'
-            req["content"] = "plain/text"
-            start = time.time()
-            rsp = card.Transaction(req)
-            latency = time.time() - start
-            print(req)
-            print(f"Network handshake latency: {latency:.3f} seconds")
 
-            if rsp["result"] == 200:
-                # Decode plaintext response to JSON
-                encoded_payload = rsp["payload"]
-                decoded_payload = base64.b64decode(encoded_payload).decode('utf-8')
-                json_payload = json.loads(decoded_payload)
+            if len(recognized_text) >= 2 and len(recognized_text) <= 8:
+                # Ask server if this license plate is a hit
+                req = {"req": "web.get"}
+                req["route"] = "GetDetection"
+                req["name"] = f'/{recognized_text}'
+                req["content"] = "plain/text"
+                start = time.time()
+                rsp = card.Transaction(req)
+                latency = time.time() - start
+                print(req)
+                print(f"Network handshake latency: {latency:.3f} seconds")
 
-                # Transfer target license plate image to server with rate limiting
-                # if json_payload.get("match") and rsp["body"].get("X-From-Cache") is None:
-                    # start = time.time()
-                cropped_filename = os.path.join(inference_dir, f"inf_{frame_count}_{i}.jpg")
-                print(f"inf_{frame_count}_{i}.jpg: {recognized_text}, lon: {packet.lon}, lat: {packet.lat}, timestamp: {start_time}")
-                cv2.imwrite(cropped_filename, cropped_img)
-                    # latency = time.time() - start
-                    # print(f"Image transfer latency: {latency:.3f} seconds")
-                    # latency = time.time() - start_time
-                    # print(f"Critical path latency: {latency:.3f} seconds")
+                if rsp["result"] == 200:
+                    # Decode plaintext response to JSON
+                    encoded_payload = rsp["payload"]
+                    decoded_payload = base64.b64decode(encoded_payload).decode('utf-8')
+                    json_payload = json.loads(decoded_payload)
+
+                    # Transfer target license plate image to server with rate limiting
+                    # if json_payload.get("match") and rsp["body"].get("X-From-Cache") is None:
+                        # start = time.time()
+                    cropped_filename = os.path.join(inference_dir, f"inf_{frame_count}_{i}.jpg")
+                    print(f"inf_{frame_count}_{i}.jpg: {recognized_text}, lon: {packet.lon}, lat: {packet.lat}, timestamp: {start_time}")
+                    cv2.imwrite(cropped_filename, cropped_img)
+                        # latency = time.time() - start
+                        # print(f"Image transfer latency: {latency:.3f} seconds")
+                        # latency = time.time() - start_time
+                        # print(f"Critical path latency: {latency:.3f} seconds")
 
 def main_loop(inference_dir, raw_dir, model, ocr):
     # Initialize Picam2
