@@ -248,8 +248,6 @@ def get_gps_data_with_timeout(timeout_seconds, max_attempts):
         else:
             print(f"Attempt {i}: No GPS fix, retrying...")
 
-        time.sleep(1)
-
 # GPS setup
 gpsd.connect()
 packet = None
