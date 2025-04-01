@@ -12,6 +12,7 @@ from periphery import I2C
 import base64
 import json
 from INA219 import INA219
+import RPi.GPIO as GPIO
 import logging
 
 def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
@@ -83,111 +84,125 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
                         # print(f"Critical path latency: {latency:.3f} seconds")
 
 def main_loop(inference_dir, raw_dir, model, ocr):
-    # Initialize Picam2
-    picam2 = Picamera2()
-    picam2.video_configuration.main.size = (2304, 1296)
-    picam2.video_configuration.main.format = "RGB888"
-    picam2.video_configuration.align()
-    picam2.video_configuration.controls.FrameDurationLimits = (33333, 33333)
-    picam2.video_configuration.controls.AeExposureMode = 1 # ExposureShort
-    picam2.video_configuration.transform = Transform(vflip=True, hflip=True)
-    
-    picam2.configure("video")
-    picam2.start()
-    
-    # Create output directories if they don't exist
-    os.makedirs(inference_dir, exist_ok=True)
-    os.makedirs(raw_dir, exist_ok=True)
-
-    # Generate a unique timestamp for each recording
-    timestamp = time.time()
+    global led_state
+    try:
+        # Initialize Picam2
+        picam2 = Picamera2()
+        picam2.video_configuration.main.size = (2304, 1296)
+        picam2.video_configuration.main.format = "RGB888"
+        picam2.video_configuration.align()
+        picam2.video_configuration.controls.FrameDurationLimits = (33333, 33333)
+        picam2.video_configuration.controls.AeExposureMode = 1 # ExposureShort
+        picam2.video_configuration.transform = Transform(vflip=True, hflip=True)
         
-    # Create new subdirectories for raw and inference frames based on timestamp
-    timestamp_inference_dir = os.path.join(inference_dir, f"{timestamp}")
-    timestamp_raw_dir = os.path.join(raw_dir, f"{timestamp}")
-    os.makedirs(timestamp_inference_dir, exist_ok=True)
-    os.makedirs(timestamp_raw_dir, exist_ok=True)
-    
-    # Setup for raw video recording with MP4
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    clip_duration = 60  # seconds per clip
-    start_time = time.time()
-    clip_index = 0
+        picam2.configure("video")
+        picam2.start()
+        
+        os.makedirs(inference_dir, exist_ok=True)
+        os.makedirs(raw_dir, exist_ok=True)
 
-    # Capture an initial frame to determine dimensions
-    frame = picam2.capture_array()
-    frame_count = 0
-    width = 640
-    height = 480
-    fps = 12  # Initial FPS assumption
-    raw_filename = os.path.join(timestamp_raw_dir, f"raw_clip_{clip_index}.mp4")
-    out = cv2.VideoWriter(raw_filename, fourcc, fps, (width, height))
-    
-    inference_thread = None
+        timestamp = time.time()
+        timestamp_inference_dir = os.path.join(inference_dir, f"{timestamp}")
+        timestamp_raw_dir = os.path.join(raw_dir, f"{timestamp}")
+        os.makedirs(timestamp_inference_dir, exist_ok=True)
+        os.makedirs(timestamp_raw_dir, exist_ok=True)
+        
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        clip_duration = 60  
+        start_time = time.time()
+        clip_index = 0
 
-    discharge_counter = 0
-
-    while True:
-        bus_voltage = ina219.getBusVoltage_V()             # voltage on V- (load side)
-        shunt_voltage = ina219.getShuntVoltage_mV() / 1000 # voltage between V+ and V- across the shunt
-        current = ina219.getCurrent_mA() / 1000                 # current in mA
-        power = ina219.getPower_W()                        # power in W
-        p = (bus_voltage - 6)/2.4*100
-        if(p > 100):p = 100
-        if(p < 0):p = 0
-        if current < -0.5:
-            status = "Discharging"
-            discharge_counter += 1
-            print("Load Voltage:  {:6.3f} V".format(bus_voltage))
-            print("Current:       {:9.6f} A".format(current))
-            print("Power:         {:6.3f} W".format(power))
-            print("Percent:       {:3.1f}%".format(p))
-            print("")
-        else:
-            discharge_counter = 0
-
-        # Capture current frame
         frame = picam2.capture_array()
-        frame_count += 1
+        frame_count = 0
+        width, height = 640, 480
+        fps = 12  
+        raw_filename = os.path.join(timestamp_raw_dir, f"raw_clip_{clip_index}.mp4")
+        out = cv2.VideoWriter(raw_filename, fourcc, fps, (width, height))
         
-        # Write the resized frame to the current MP4 file
-        resized_frame = cv2.resize(frame, (width, height))
-        out.write(resized_frame)
+        inference_thread = None
+        discharge_counter = 0
 
-        # Calculate and display actual FPS every second
-        if fps > 0 and frame_count % fps == 0:
-            elapsed_time = time.time() - start_time
-            actual_fps = frame_count / elapsed_time
-            print(f"Elapsed Time: {elapsed_time:.2f}s, Frames Captured: {frame_count}, Actual FPS: {actual_fps:.2f}")
-        
-        # Check if it's time to start a new clip
-        if time.time() - start_time >= clip_duration:
-            out.release()
-            clip_index += 1
-            start_time = time.time()
-            frame_count = 0  # Reset frame count for the new clip
-            # Recalculate FPS based on previous clip's performance
-            fps = round(actual_fps) if 'actual_fps' in locals() else fps
-            raw_filename = os.path.join(timestamp_raw_dir, f"raw_clip_{clip_index}.mp4")
-            out = cv2.VideoWriter(raw_filename, fourcc, fps, (width, height))
-        
-        # Only start a new inference if the previous one has finished
-        if inference_thread is None or not inference_thread.is_alive():
-            # Pass a copy of the frame for inference to avoid interference with recording
+        while True:
+            led_state = "recording"
+            bus_voltage = ina219.getBusVoltage_V()
+            current = ina219.getCurrent_mA() / 1000
+            power = ina219.getPower_W()
+            p = (bus_voltage - 6) / 2.4 * 100
+            p = max(0, min(100, p))
+            
+            if current < -0.5:
+                status = "Discharging"
+                discharge_counter += 1
+                print(f"Load Voltage: {bus_voltage:.3f} V, Current: {current:.6f} A, Power: {power:.3f} W, Percent: {p:.1f}%")
 
-            inference_thread = threading.Thread(
-                target=run_inference,
-                args=(frame.copy(), timestamp_inference_dir, model, ocr, frame_count)
-            )
-            inference_thread.start()
-        
-        if cv2.waitKey(1) & 0xFF == ord('q') or discharge_counter >= 5:
-            break
+            else:
+                discharge_counter = 0
 
-    # Release resources on exit
-    out.release()
-    picam2.stop()
-    cv2.destroyAllWindows()
+            frame = picam2.capture_array()
+            frame_count += 1
+            resized_frame = cv2.resize(frame, (width, height))
+            out.write(resized_frame)
+
+            if fps > 0 and frame_count % fps == 0:
+                elapsed_time = time.time() - start_time
+                actual_fps = frame_count / elapsed_time
+                print(f"Elapsed Time: {elapsed_time:.2f}s, Frames Captured: {frame_count}, Actual FPS: {actual_fps:.2f}")
+            
+            if time.time() - start_time >= clip_duration:
+                out.release()
+                clip_index += 1
+                start_time = time.time()
+                frame_count = 0  
+                fps = round(actual_fps) if 'actual_fps' in locals() else fps
+                raw_filename = os.path.join(timestamp_raw_dir, f"raw_clip_{clip_index}.mp4")
+                out = cv2.VideoWriter(raw_filename, fourcc, fps, (width, height))
+            
+            if inference_thread is None or not inference_thread.is_alive():
+                inference_thread = threading.Thread(
+                    target=run_inference,
+                    args=(frame.copy(), timestamp_inference_dir, model, ocr, frame_count)
+                )
+                inference_thread.start()
+            
+            if cv2.waitKey(1) & 0xFF == ord('q') or discharge_counter >= 5:
+                break
+
+    except Exception as e:
+        print(f"Error encountered: {e}")
+    
+    finally:
+        if inference_thread:
+            inference_thread.join()
+        print("Exiting... Turning off LED and cleaning up resources.")
+        led_state = "done"
+        out.release()
+        picam2.stop()
+        cv2.destroyAllWindows()
+
+# LED setup
+LED_PIN = 17  # GPIO number
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(LED_PIN, GPIO.OUT)
+
+# Global flag for LED control state
+led_state = "setup"
+
+def led_control():
+    while True:
+        if led_state == "setup":
+            GPIO.output(LED_PIN, GPIO.HIGH)  # LED stays ON
+        elif led_state == "recording":
+            GPIO.output(LED_PIN, GPIO.HIGH)
+            time.sleep(0.5)
+            GPIO.output(LED_PIN, GPIO.LOW)
+            time.sleep(0.5)
+        elif led_state == "done":
+            GPIO.output(LED_PIN, GPIO.LOW)
+
+# Start LED control in a separate thread
+led_thread = threading.Thread(target=led_control, daemon=True)
+led_thread.start()
 
 # YOLO setup
 det_model = YOLO("detection_ncnn_model")
@@ -232,9 +247,8 @@ def get_gps_data():
         packet = None
 
 def get_gps_data_with_timeout(timeout_seconds, max_attempts):
-    global packet
     for i in range(max_attempts):
-        gps_thread = threading.Thread(target=get_gps_data)
+        gps_thread = threading.Thread(target=get_gps_data, daemon=True)
         gps_thread.start()
     
         gps_thread.join(timeout_seconds)
@@ -251,7 +265,7 @@ def get_gps_data_with_timeout(timeout_seconds, max_attempts):
 # GPS setup
 gpsd.connect()
 packet = None
-get_gps_data_with_timeout(0.5, 5)
+get_gps_data_with_timeout(1, 3)
 
 # UPS setup
 ina219 = INA219(addr=0x42)
