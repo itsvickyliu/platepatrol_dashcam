@@ -15,13 +15,22 @@ from INA219 import INA219
 import logging
 
 def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
-    packet = gpsd.get_current()
     start_time = time.time()
-    start = start_time
+
+    lon = 0
+    lat = 0
+    get_gps_data_with_timeout(0.005, 1)
+    if packet:
+        lon = packet.lon
+        lat = packet.lat
+
+    start = time.time()
     results = det(infer_frame)
     latency = time.time() - start
+
     print(f"Detection latency: {latency:.3f} seconds")
     print(f"{len(results[0].boxes)} license plates detected")
+
     for i, result in enumerate(results[0].boxes):
 
         if result.conf < 0.5:
@@ -66,7 +75,7 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
                     # if json_payload.get("match") and rsp["body"].get("X-From-Cache") is None:
                         # start = time.time()
                     cropped_filename = os.path.join(inference_dir, f"inf_{frame_count}_{i}.jpg")
-                    print(f"inf_{frame_count}_{i}.jpg: {recognized_text}, lon: {packet.lon}, lat: {packet.lat}, timestamp: {start_time}")
+                    print(f"inf_{frame_count}_{i}.jpg: {recognized_text}, lon: {lon}, lat: {lat}, timestamp: {start_time}, latency: {time.time() - start_time}")
                     cv2.imwrite(cropped_filename, cropped_img)
                         # latency = time.time() - start
                         # print(f"Image transfer latency: {latency:.3f} seconds")
@@ -146,7 +155,7 @@ def main_loop(inference_dir, raw_dir, model, ocr):
         out.write(resized_frame)
 
         # Calculate and display actual FPS every second
-        if frame_count % fps == 0:
+        if fps > 0 and frame_count % fps == 0:
             elapsed_time = time.time() - start_time
             actual_fps = frame_count / elapsed_time
             print(f"Elapsed Time: {elapsed_time:.2f}s, Frames Captured: {frame_count}, Actual FPS: {actual_fps:.2f}")
@@ -165,6 +174,7 @@ def main_loop(inference_dir, raw_dir, model, ocr):
         # Only start a new inference if the previous one has finished
         if inference_thread is None or not inference_thread.is_alive():
             # Pass a copy of the frame for inference to avoid interference with recording
+
             inference_thread = threading.Thread(
                 target=run_inference,
                 args=(frame.copy(), timestamp_inference_dir, model, ocr, frame_count)
@@ -213,24 +223,37 @@ req["product"] = productUID
 req["mode"] = "continuous"
 card.Transaction(req)
 
-# GPS setup
-gpsd.connect()
-while True:
+def get_gps_data():
+    global packet
     try:
-        # Attempt to get the current GPS data
         packet = gpsd.get_current()
-        
-        # Check for 2D or 3D fix (mode 2 or 3)
-        if packet.mode >= 2:
+    except Exception as e:
+        print(f"Error getting GPS data: {e}")
+        packet = None
+
+def get_gps_data_with_timeout(timeout_seconds, max_attempts):
+    global packet
+    for i in range(max_attempts):
+        gps_thread = threading.Thread(target=get_gps_data)
+        gps_thread.start()
+    
+        gps_thread.join(timeout_seconds)
+
+        if gps_thread.is_alive():
+            print(f"Attempt {i}: GPS data request timed out.")
+            gps_thread.join()
+        elif packet and packet.mode >= 2:
             print("GPS connected")
             break
-    except UserWarning as e:
-        # Catch the UserWarning and print a message
-        if str(e) == 'GPS not active':
-            print("GPS not active, waiting for connection...")
-            time.sleep(1)  # Wait for a moment and try again
         else:
-            raise  # Re-raise other warnings if necessary
+            print(f"Attempt {i}: No GPS fix, retrying...")
+
+        time.sleep(1)
+
+# GPS setup
+gpsd.connect()
+packet = None
+get_gps_data_with_timeout(0.5, 5)
 
 # UPS setup
 ina219 = INA219(addr=0x42)
