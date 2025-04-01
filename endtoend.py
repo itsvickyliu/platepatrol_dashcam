@@ -178,6 +178,8 @@ def main_loop(inference_dir, raw_dir, model, ocr):
         out.release()
         picam2.stop()
         cv2.destroyAllWindows()
+        # Ensure LED state is updated
+        time.sleep(1)
 
 # LED setup
 LED_PIN = 17  # GPIO number
