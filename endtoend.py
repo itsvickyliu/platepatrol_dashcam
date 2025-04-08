@@ -33,7 +33,6 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
     print(f"{len(results[0].boxes)} license plates detected")
 
     for i, result in enumerate(results[0].boxes):
-
         if result.conf < 0.5:
             continue
         
@@ -73,15 +72,30 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
                     json_payload = json.loads(decoded_payload)
 
                     # Transfer target license plate image to server with rate limiting
-                    # if json_payload.get("match") and rsp["body"].get("X-From-Cache") is None:
-                        # start = time.time()
-                    cropped_filename = os.path.join(inference_dir, f"inf_{frame_count}_{i}.jpg")
-                    print(f"inf_{frame_count}_{i}.jpg: {recognized_text}, lon: {lon}, lat: {lat}, timestamp: {start_time}, latency: {time.time() - start_time}")
-                    cv2.imwrite(cropped_filename, cropped_img)
-                        # latency = time.time() - start
-                        # print(f"Image transfer latency: {latency:.3f} seconds")
-                        # latency = time.time() - start_time
-                        # print(f"Critical path latency: {latency:.3f} seconds")
+                    if json_payload.get("match") and rsp["body"].get("X-From-Cache") is None:
+                        image_id = json_payload.get("image_id")
+                        print(f"id: {image_id}")
+                        success, encoded_image = cv2.imencode(".jpg", cropped_img)
+                        if success:
+                            chunk_size = 8 * 1024
+
+                            image_buffer = encoded_image.tobytes()
+
+                            chunks = [image_buffer[i:i + chunk_size] for i in range(0, len(image_buffer), chunk_size)]
+                            total_chunks = len(chunks)
+
+                            start = time.time()
+                            for i, chunk in enumerate(chunks):
+                                encoded_chunk = base64.b64encode(chunk).decode('utf-8')
+                                req = {"req": "web.post"}
+                                req["route"] = "PostChunk"
+                                req["body"] = {"image_id": image_id, "chunk_id": i, "total_chunks": total_chunks, "data": encoded_chunk}
+                                req["content"] = "plain/text"
+                                rsp = card.Transaction(req)
+                            latency = time.time() - start
+                            print(f"Image transfer latency: {latency:.3f} seconds")
+                            latency = time.time() - start_time
+                            print(f"Critical path latency: {latency:.3f} seconds")
 
 def main_loop(inference_dir, raw_dir, model, ocr):
     global led_state
@@ -124,19 +138,19 @@ def main_loop(inference_dir, raw_dir, model, ocr):
 
         while True:
             led_state = "recording"
-            bus_voltage = ina219.getBusVoltage_V()
-            current = ina219.getCurrent_mA() / 1000
-            power = ina219.getPower_W()
-            p = (bus_voltage - 6) / 2.4 * 100
-            p = max(0, min(100, p))
+            # bus_voltage = ina219.getBusVoltage_V()
+            # current = ina219.getCurrent_mA() / 1000
+            # power = ina219.getPower_W()
+            # p = (bus_voltage - 6) / 2.4 * 100
+            # p = max(0, min(100, p))
             
-            if current < -0.5:
-                status = "Discharging"
-                discharge_counter += 1
-                print(f"Load Voltage: {bus_voltage:.3f} V, Current: {current:.6f} A, Power: {power:.3f} W, Percent: {p:.1f}%")
+            # if current < -0.5:
+            #     status = "Discharging"
+            #     discharge_counter += 1
+            #     print(f"Load Voltage: {bus_voltage:.3f} V, Current: {current:.6f} A, Power: {power:.3f} W, Percent: {p:.1f}%")
 
-            else:
-                discharge_counter = 0
+            # else:
+            #     discharge_counter = 0
 
             frame = picam2.capture_array()
             frame_count += 1
@@ -182,7 +196,7 @@ def main_loop(inference_dir, raw_dir, model, ocr):
         time.sleep(1)
 
 # LED setup
-LED_PIN = 17  # GPIO number
+LED_PIN = 23    # GPIO number
 
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(LED_PIN, GPIO.OUT)
@@ -191,7 +205,7 @@ GPIO.setup(LED_PIN, GPIO.OUT)
 led_state = "setup"
 
 def led_control():
-    while True:
+    while led_state != "done":
         if led_state == "setup":
             GPIO.output(LED_PIN, GPIO.HIGH)  # LED stays ON
         elif led_state == "recording":
@@ -201,6 +215,7 @@ def led_control():
             time.sleep(0.5)
         elif led_state == "done":
             GPIO.output(LED_PIN, GPIO.LOW)
+            GPIO.cleanup()
 
 # Start LED control in a separate thread
 led_thread = threading.Thread(target=led_control, daemon=True)
@@ -270,6 +285,6 @@ packet = None
 get_gps_data_with_timeout(1, 3)
 
 # UPS setup
-ina219 = INA219(addr=0x42)
+# ina219 = INA219(addr=0x42)
 
 main_loop('/home/platepatrol/Desktop/inference_frames', '/home/platepatrol/Desktop/raw_footage', det_model, ocr_model)
