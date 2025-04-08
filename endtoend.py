@@ -171,7 +171,7 @@ def main_loop(inference_dir, raw_dir, model, ocr):
                 raw_filename = os.path.join(timestamp_raw_dir, f"raw_clip_{clip_index}.mp4")
                 out = cv2.VideoWriter(raw_filename, fourcc, fps, (width, height))
             
-            if inference_thread is None or not inference_thread.is_alive():
+            if inference_thread is None or not inference_thread.is_alive() and GPIO.input(OPTIN_PIN):
                 inference_thread = threading.Thread(
                     target=run_inference,
                     args=(frame.copy(), timestamp_inference_dir, model, ocr, frame_count)
@@ -220,6 +220,12 @@ def led_control():
 # Start LED control in a separate thread
 led_thread = threading.Thread(target=led_control, daemon=True)
 led_thread.start()
+
+# Opt-in switch setup
+OPTIN_PIN = 17    # GPIO number
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(OPTIN_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 # YOLO setup
 det_model = YOLO("detection_ncnn_model")
