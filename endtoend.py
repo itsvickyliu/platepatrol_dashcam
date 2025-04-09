@@ -17,7 +17,7 @@ import logging
 
 def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
     start_time = time.time()
-    
+
     lat = 0
     lon = 0
     get_gps_data_with_timeout(0.005, 1)
@@ -65,7 +65,6 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
                 start = time.time()
                 rsp = card.Transaction(req)
                 latency = time.time() - start
-                print(req)
                 print(f"Network handshake latency: {latency:.3f} seconds")
 
                 if rsp["result"] == 200:
@@ -143,7 +142,8 @@ def main_loop(inference_dir, raw_dir, model, ocr):
         discharge_counter = 0
 
         while True:
-            led_state = "recording"
+            if inference_thread is None or not inference_thread.is_alive():
+                led_state = "recording"
             bus_voltage = ina219.getBusVoltage_V()
             current = ina219.getCurrent_mA() / 1000
             power = ina219.getPower_W()
@@ -178,6 +178,7 @@ def main_loop(inference_dir, raw_dir, model, ocr):
                 out = cv2.VideoWriter(raw_filename, fourcc, fps, (width, height))
             
             if inference_thread is None or not inference_thread.is_alive() and GPIO.input(OPTIN_PIN):
+                led_state = "inferencing"
                 inference_thread = threading.Thread(
                     target=run_inference,
                     args=(frame.copy(), timestamp_inference_dir, model, ocr, frame_count)
@@ -219,6 +220,11 @@ def led_control():
             time.sleep(0.5)
             GPIO.output(LED_PIN, GPIO.LOW)
             time.sleep(0.5)
+        elif led_state == "inferencing":
+            GPIO.output(LED_PIN, GPIO.HIGH)
+            time.sleep(0.1)
+            GPIO.output(LED_PIN, GPIO.LOW)
+            time.sleep(0.1)
         elif led_state == "done":
             GPIO.output(LED_PIN, GPIO.LOW)
             GPIO.cleanup()
