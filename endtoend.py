@@ -240,8 +240,6 @@ led_thread.start()
 
 # Opt-in switch setup
 OPTIN_PIN = 17    # GPIO number
-
-GPIO.setmode(GPIO.BCM)
 GPIO.setup(OPTIN_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
 # YOLO setup
