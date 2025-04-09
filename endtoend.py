@@ -17,13 +17,16 @@ import logging
 
 def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
     start_time = time.time()
-
-    lon = 0
+    
     lat = 0
+    lon = 0
     get_gps_data_with_timeout(0.005, 1)
     if packet:
-        lon = packet.lon
         lat = packet.lat
+        lon = packet.lon
+        
+    
+    gps = f"{lat},{lon}"
 
     start = time.time()
     results = det(infer_frame)
@@ -89,7 +92,10 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
                                 encoded_chunk = base64.b64encode(chunk).decode('utf-8')
                                 req = {"req": "web.post"}
                                 req["route"] = "PostChunk"
-                                req["body"] = {"image_id": image_id, "chunk_id": i, "total_chunks": total_chunks, "data": encoded_chunk}
+                                if i == 0:
+                                    req["body"] = {"image_id": image_id, "chunk_id": i, "total_chunks": total_chunks, "data": encoded_chunk, "gps_location": gps, "timestamp": start_time}
+                                else:
+                                    req["body"] = {"image_id": image_id, "chunk_id": i, "total_chunks": total_chunks, "data": encoded_chunk}
                                 req["content"] = "plain/text"
                                 rsp = card.Transaction(req)
                             latency = time.time() - start
@@ -138,19 +144,19 @@ def main_loop(inference_dir, raw_dir, model, ocr):
 
         while True:
             led_state = "recording"
-            # bus_voltage = ina219.getBusVoltage_V()
-            # current = ina219.getCurrent_mA() / 1000
-            # power = ina219.getPower_W()
-            # p = (bus_voltage - 6) / 2.4 * 100
-            # p = max(0, min(100, p))
+            bus_voltage = ina219.getBusVoltage_V()
+            current = ina219.getCurrent_mA() / 1000
+            power = ina219.getPower_W()
+            p = (bus_voltage - 6) / 2.4 * 100
+            p = max(0, min(100, p))
             
-            # if current < -0.5:
-            #     status = "Discharging"
-            #     discharge_counter += 1
-            #     print(f"Load Voltage: {bus_voltage:.3f} V, Current: {current:.6f} A, Power: {power:.3f} W, Percent: {p:.1f}%")
+            if current < -0.5:
+                status = "Discharging"
+                discharge_counter += 1
+                print(f"Load Voltage: {bus_voltage:.3f} V, Current: {current:.6f} A, Power: {power:.3f} W, Percent: {p:.1f}%")
 
-            # else:
-            #     discharge_counter = 0
+            else:
+                discharge_counter = 0
 
             frame = picam2.capture_array()
             frame_count += 1
@@ -291,6 +297,6 @@ packet = None
 get_gps_data_with_timeout(1, 3)
 
 # UPS setup
-# ina219 = INA219(addr=0x42)
+ina219 = INA219(addr=0x42)
 
 main_loop('/home/platepatrol/Desktop/inference_frames', '/home/platepatrol/Desktop/raw_footage', det_model, ocr_model)
