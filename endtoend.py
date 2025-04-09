@@ -73,6 +73,11 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
                     decoded_payload = base64.b64decode(encoded_payload).decode('utf-8')
                     json_payload = json.loads(decoded_payload)
 
+                    # For debugging purposes, store all inferenced images
+                    cropped_filename = os.path.join(inference_dir, f"inf_{frame_count}_{i}_{recognized_text}.jpg")
+                    print(f"inf_{frame_count}_{i}.jpg: {recognized_text}, lat: {packet.lat}, lon: {packet.lon}, timestamp: {start_time}")
+                    cv2.imwrite(cropped_filename, cropped_img)
+
                     # Transfer target license plate image to server with rate limiting
                     if json_payload.get("match") and rsp["body"].get("X-From-Cache") is None:
                         image_id = json_payload.get("image_id")
