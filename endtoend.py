@@ -36,9 +36,6 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
     print(f"{len(results[0].boxes)} license plates detected")
 
     for i, result in enumerate(results[0].boxes):
-        if result.conf < 0.5:
-            continue
-        
         # Extract bounding box coordinates
         x1, y1, x2, y2 = map(int, result.xyxy[0])
         # Crop the detected region (license plate)
@@ -158,7 +155,7 @@ def main_loop(inference_dir, raw_dir, model, ocr):
             if current < -0.5:
                 status = "Discharging"
                 discharge_counter += 1
-                print(f"Load Voltage: {bus_voltage:.3f} V, Current: {current:.6f} A, Power: {power:.3f} W, Percent: {p:.1f}%")
+                print(f"Load Voltage: {bus_voltage:.3f} V, Current: {current:.6f} A, Power: {power:.3f} W, Percent: {p:.1f}%, Time: {time.time()}")
 
             else:
                 discharge_counter = 0
@@ -250,9 +247,9 @@ logging.getLogger("ultralytics").setLevel(logging.WARNING)
 ocr_model = PaddleOCR(
     det_model_dir=None,
     cls_model_dir=None,
-    rec_model_dir='ocr',
+    rec_model_dir='ocr_model',
     rec_algorithm='SVTR_LCNet',
-    rec_char_dict_path='/home/platepatrol/Desktop/PlatePatrol/ocr/character_dict.txt',
+    rec_char_dict_path='/home/platepatrol/Desktop/PlatePatrol/ocr_model/character_dict.txt',
     use_angle_cls=True,
     lang='en'
 )
