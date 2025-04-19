@@ -15,6 +15,21 @@ from INA219 import INA219
 import RPi.GPIO as GPIO
 import logging
 
+def upload_with_retry(req, max_retries=3, base_delay=0.5):
+    for attempt in range(max_retries):
+        rsp = card.Transaction(req)
+        if rsp["result"] == 200:
+            return True
+        else:
+            code = rsp["result"]
+            print(f"[Retry {attempt+1}] Error: {code}")
+        
+        # Exponential backoff
+        time.sleep(base_delay * (2 ** attempt))
+    
+    print("[Retry] Max retries exceeded")
+    return False
+
 def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
     start_time = time.time()
 
@@ -81,7 +96,7 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
                         print(f"id: {image_id}")
                         success, encoded_image = cv2.imencode(".jpg", cropped_img)
                         if success:
-                            chunk_size = 8 * 1024
+                            chunk_size = 2 * 1024
 
                             image_buffer = encoded_image.tobytes()
 
@@ -98,7 +113,8 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
                                 else:
                                     req["body"] = {"image_id": image_id, "chunk_id": i, "total_chunks": total_chunks, "data": encoded_chunk}
                                 req["content"] = "plain/text"
-                                rsp = card.Transaction(req)
+                                if not upload_with_retry(req):
+                                    return
                             latency = time.time() - start
                             print(f"Image transfer latency: {latency:.3f} seconds")
                             latency = time.time() - start_time
