@@ -114,7 +114,7 @@ def run_inference(infer_frame, inference_dir, det, ocr, frame_count):
                                     req["body"] = {"image_id": image_id, "chunk_id": i, "total_chunks": total_chunks, "data": encoded_chunk}
                                 req["content"] = "plain/text"
                                 if not upload_with_retry(req):
-                                    return
+                                    break
                             latency = time.time() - start
                             print(f"Image transfer latency: {latency:.3f} seconds")
                             latency = time.time() - start_time
@@ -306,12 +306,14 @@ def get_gps_data_with_timeout(timeout_seconds, max_attempts):
 
         if gps_thread.is_alive():
             print(f"Attempt {i}: GPS data request timed out.")
+            packet = None
             gps_thread.join()
         elif packet and packet.mode >= 2:
             print("GPS connected")
             break
         else:
             print(f"Attempt {i}: No GPS fix, retrying...")
+            packet = None
 
 # GPS setup
 gpsd.connect()
